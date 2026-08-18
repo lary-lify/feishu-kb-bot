@@ -1,0 +1,24 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ---- 本地依赖缓存（本机验证用，非项目交付物）----
+.deps/
+.pylibs/
+.pylibs2/
+
+# ---- 运行时数据 ----
+data/
+*.log
+
+# ---- 测试缓存 ----
+.pytest_cache/
+
+# ---- 密钥 ----
+.env
+
+# ---- WorkBuddy 工作区数据（内部笔记，不入库）----
+.workbuddy/

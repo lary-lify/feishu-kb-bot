@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>飞书内部客服助手 · 管理后台</title>
+<style>
+  :root { --primary:#3370ff; --bg:#f5f6f8; --card:#fff; --border:#e5e6eb; --text:#1f2329; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background:var(--bg); color:var(--text); font-size:14px; }
+  header { background:var(--primary); color:#fff; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; }
+  header .right { font-size:13px; }
+  .container { max-width:1080px; margin:18px auto; padding:0 16px; display:grid; grid-template-columns: 320px 1fr; gap:16px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:16px; }
+  h3 { margin:0 0 12px; font-size:15px; }
+  label { display:block; margin:8px 0 4px; color:#646a73; }
+  input, select, textarea, button { width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:14px; }
+  button { background:var(--primary); color:#fff; border:none; cursor:pointer; margin-top:10px; }
+  button:hover { opacity:.9; }
+  .btn-ghost { background:#fff; color:var(--primary); border:1px solid var(--primary); }
+  .kb-item { padding:8px; border:1px solid var(--border); border-radius:6px; margin-bottom:8px; cursor:pointer; }
+  .kb-item.active { border-color:var(--primary); background:#eef3ff; }
+  .kb-item small { color:#8f959e; }
+  .doc-item { padding:6px 8px; border-bottom:1px solid var(--border); font-size:13px; }
+  .src { background:#fafbfc; border-left:3px solid var(--primary); padding:6px 10px; margin:6px 0; font-size:12px; color:#4e5969; }
+  .answer { white-space:pre-wrap; line-height:1.7; }
+  .hidden { display:none; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .tag { display:inline-block; background:#eef3ff; color:var(--primary); border-radius:4px; padding:1px 6px; font-size:12px; }
+  pre { background:#0b1021; color:#d6e2ff; padding:10px; border-radius:6px; overflow:auto; max-height:300px; }
+</style>
+</head>
+<body>
+<header>
+  <div>飞书内部客服助手 · 管理后台</div>
+  <div class="right" id="userBox"></div>
+</header>
+
+<div class="container">
+  <!-- 左侧：知识库 + 文档 -->
+  <div>
+    <div class="card" id="loginCard">
+      <h3>管理员登录</h3>
+      <label>用户名</label><input id="username" value="admin" />
+      <label>密码</label><input id="password" type="password" value="Admin@123456" />
+      <button onclick="login()">登录</button>
+    </div>
+
+    <div class="card hidden" id="kbCard">
+      <h3>知识库</h3>
+      <div id="kbList"></div>
+      <hr/>
+      <h3>新建知识库</h3>
+      <label>名称</label><input id="kbName" />
+      <label>描述</label><input id="kbDesc" />
+      <label>模式</label>
+      <select id="kbMode"><option value="shared">shared（全员可读）</option><option value="private">private（按授权）</option></select>
+      <button onclick="createKb()">创建</button>
+    </div>
+
+    <div class="card hidden" id="docCard">
+      <h3>文档接入（<span id="docKbName"></span>）</h3>
+      <label>上传文件（Word/PDF/TXT/MD）</label>
+      <input type="file" id="fileInput" />
+      <button onclick="uploadFile()">上传并向量化</button>
+      <hr/>
+      <label>添加网页 URL</label><input id="urlInput" placeholder="https://..." />
+      <button class="btn-ghost" onclick="addUrl()">抓取网页</button>
+      <hr/>
+      <h3>已入库文档</h3>
+      <div id="docList"></div>
+    </div>
+  </div>
+
+  <!-- 右侧：问答联调 -->
+  <div>
+    <div class="card hidden" id="chatCard">
+      <h3>问答联调（SSE 流式）</h3>
+      <label>选择知识库（留空=全部可读库）</label>
+      <select id="chatKb"><option value="">全部可读知识库</option></select>
+      <label>问题</label>
+      <textarea id="question" rows="3" placeholder="例如：退货流程是什么？"></textarea>
+      <button onclick="ask()">提问</button>
+      <div id="answerBox" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="card hidden" id="auditCard">
+      <h3>用量概览</h3>
+      <pre id="usageBox">（超级管理员可见）</pre>
+      <button class="btn-ghost" onclick="loadUsage()">刷新用量</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = "";
+let TOKEN = localStorage.getItem("kb_token") || "";
+
+function authHeaders(){ return { "Authorization": "Bearer " + TOKEN, "Content-Type":"application/json" }; }
+
+async function login(){
+  const r = await fetch(API+"/api/auth/login", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({username:username.value, password:password.value})});
+  const j = await r.json();
+  if(j.code===0){ TOKEN=j.data.access_token; localStorage.setItem("kb_token", TOKEN);
+    document.getElementById("loginCard").classList.add("hidden");
+    document.getElementById("kbCard").classList.remove("hidden");
+    document.getElementById("docCard").classList.remove("hidden");
+    document.getElementById("chatCard").classList.remove("hidden");
+    document.getElementById("userBox").textContent = "已登录：" + j.data.username + " (" + j.data.role + ")";
+    if(j.data.role==="super_admin"){ document.getElementById("auditCard").classList.remove("hidden"); loadUsage(); }
+    loadKbs();
+  } else alert("登录失败：" + j.msg);
+}
+
+async function loadKbs(){
+  const r = await fetch(API+"/api/kbs", {headers:authHeaders()});
+  const j = await r.json(); if(j.code!==0) return;
+  const list = document.getElementById("kbList"); list.innerHTML="";
+  const chatKb = document.getElementById("chatKb");
+  chatKb.innerHTML = '<option value="">全部可读知识库</option>';
+  j.data.forEach(kb=>{
+    const d=document.createElement("div"); d.className="kb-item";
+    d.innerHTML = `<b>${kb.name}</b> <span class="tag">${kb.mode}</span><br/><small>${kb.description||""}</small>`;
+    d.onclick=()=>selectKb(kb);
+    list.appendChild(d);
+    const o=document.createElement("option"); o.value=kb.id; o.textContent=kb.name; chatKb.appendChild(o);
+  });
+}
+
+let currentKb=null;
+function selectKb(kb){ currentKb=kb; document.getElementById("docKbName").textContent=kb.name; loadDocs(kb.id); }
+
+async function createKb(){
+  const r=await fetch(API+"/api/kbs",{method:"POST",headers:authHeaders(),
+    body:JSON.stringify({name:kbName.value, description:kbDesc.value, mode:kbMode.value})});
+  const j=await r.json(); alert(j.code===0?"创建成功":"失败："+j.msg); if(j.code===0) loadKbs();
+}
+
+async function uploadFile(){
+  if(!currentKb){ alert("请先选择左侧知识库"); return; }
+  const f=document.getElementById("fileInput").files[0]; if(!f){alert("请选择文件");return;}
+  const fd=new FormData(); fd.append("file", f);
+  const r=await fetch(API+`/api/kbs/${currentKb.id}/documents/upload`,{method:"POST",headers:{Authorization:"Bearer "+TOKEN},body:fd});
+  const j=await r.json(); alert(j.code===0?`入库成功，分块数：${j.data.chunk_count}`:"失败："+j.msg);
+  if(j.code===0) loadDocs(currentKb.id);
+}
+
+async function addUrl(){
+  if(!currentKb){ alert("请先选择左侧知识库"); return; }
+  const url=document.getElementById("urlInput").value; if(!url){alert("请输入URL");return;}
+  const r=await fetch(API+`/api/kbs/${currentKb.id}/documents/url`,{method:"POST",headers:authHeaders(),
+    body:JSON.stringify({url, title:""})});
+  const j=await r.json(); alert(j.code===0?`入库成功，分块数：${j.data.chunk_count}`:"失败："+j.msg);
+  if(j.code===0) loadDocs(currentKb.id);
+}
+
+async function loadDocs(kbId){
+  const r=await fetch(API+`/api/kbs/${kbId}/documents`,{headers:authHeaders()});
+  const j=await r.json(); const box=document.getElementById("docList"); box.innerHTML="";
+  (j.data||[]).forEach(d=>{ const div=document.createElement("div"); div.className="doc-item";
+    div.innerHTML=`${d.title} <span class="tag">${d.source_type}</span> · 分块 ${d.chunk_count} · <b>${d.status}</b>`;
+    box.appendChild(div); });
+}
+
+async function ask(){
+  const q=document.getElementById("question").value; if(!q.trim()){alert("请输入问题");return;}
+  const kbId=document.getElementById("chatKb").value||null;
+  const box=document.getElementById("answerBox"); box.innerHTML="<b>思考中…</b>";
+  const resp=await fetch(API+"/api/chat",{method:"POST",headers:authHeaders(),
+    body:JSON.stringify({question:q, kb_id: kbId?Number(kbId):null})});
+  const reader=resp.body.getReader(); const dec=new TextDecoder(); let buf=""; let answer=""; let sources=[];
+  while(true){ const {done,value}=await reader.read(); if(done) break; buf+=dec.decode(value);
+    buf.split("\n\n").forEach(seg=>{ if(seg.startsWith("data: ")){ try{ const ev=JSON.parse(seg.slice(6));
+      if(ev.type==="token") answer+=ev.text;
+      if(ev.type==="source_chunks") sources=ev.data;
+    }catch(e){} }});
+    box.innerHTML=`<div class="answer">${answer.replace(/</g,"&lt;")}</div>`;
+  }
+  let html=`<div class="answer">${answer.replace(/</g,"&lt;")}</div>`;
+  if(sources.length){ html+="<h3>参考来源</h3>";
+    sources.forEach((s,i)=>{ const link=s.source_url?` <a href="${s.source_url}" target="_blank">查看</a>`:"";
+      html+=`<div class="src">${i+1}. 📄 ${s.doc_name} · 第${s.chunk_index}段（相似度 ${s.score}）${link}<br/>${s.snippet.replace(/</g,"&lt;")}</div>`; });
+  }
+  box.innerHTML=html;
+}
+
+async function loadUsage(){
+  const r=await fetch(API+"/api/audit/usage",{headers:authHeaders()}); const j=await r.json();
+  document.getElementById("usageBox").textContent=JSON.stringify(j.data,null,2);
+}
+
+if(TOKEN){ // 已有 token，直接拉取
+  document.getElementById("loginCard").classList.add("hidden");
+  document.getElementById("kbCard").classList.remove("hidden");
+  document.getElementById("docCard").classList.remove("hidden");
+  document.getElementById("chatCard").classList.remove("hidden");
+  fetch(API+"/api/auth/me",{headers:authHeaders()}).then(r=>r.json()).then(j=>{
+    if(j.code===0){ document.getElementById("userBox").textContent="已登录："+j.data.username+" ("+j.data.role+")";
+      if(j.data.role==="super_admin"){document.getElementById("auditCard").classList.remove("hidden");loadUsage();}
+      loadKbs();
+    } else { localStorage.removeItem("kb_token"); location.reload(); }
+  });
+}
+</script>
+</body>
+</html>
