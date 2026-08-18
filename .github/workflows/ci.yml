@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Syntax compile check
+        run: python -m compileall -q app tests
+
+      - name: Run unit tests (mock mode, no keys / DB needed)
+        env:
+          EMBEDDING_MOCK: "1"
+          LLM_MOCK: "1"
+          ALLOW_DEFAULT_SECRET: "1"
+        run: python -m pytest tests/ -v
